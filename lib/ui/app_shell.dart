@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:orbits_new/theme/app_theme.dart';
-
-
 import 'package:orbits_new/ui/contact_list.dart';
 import 'package:orbits_new/ui/settings.dart';
 import 'package:orbits_new/ui/home.dart';
@@ -21,7 +19,7 @@ class _AppShellState extends State<AppShell> {
 
   static const List<Widget> _pages = <Widget>[
     HomePage(),
-    DeviceRecord(),
+    DeviceRecordPage(),
     ContactListPage(),
     SettingsPage(),
   ];
@@ -51,25 +49,11 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return Scaffold(
-      // appBar: AppBar(
-      //   title: const Text('Orbits'),
-      //   centerTitle: true,
-      //   backgroundColor: AppTheme.primaryColor.withOpacity(0.9),
-      //   foregroundColor: Colors.white,
-      //   elevation: 0.5,
-      // ),
       body: PageView(
         controller: _pageController,
         physics: const NeverScrollableScrollPhysics(),
         children: _pages,
-        onPageChanged: (index) {
-          setState(() {
-            _selectedIndex = index;
-          });
-        },
       ),
       bottomNavigationBar: BottomNavigationBar(
         items: const <BottomNavigationBarItem>[

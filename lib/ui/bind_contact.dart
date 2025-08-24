@@ -5,7 +5,9 @@ import 'package:orbits_new/theme/app_theme.dart';
 
 class ContactBindPage extends StatefulWidget {
   final String uuid;
-  const ContactBindPage({super.key, required this.uuid});
+  final ContactBinding? initialBinding;
+
+  const ContactBindPage({super.key, required this.uuid, this.initialBinding});
 
   @override
   State<ContactBindPage> createState() => _ContactBindPageState();
@@ -17,12 +19,29 @@ class _ContactBindPageState extends State<ContactBindPage> {
   final TextEditingController phoneController = TextEditingController();
   final BindingDao bindingDao = BindingDao();
 
+  @override
+  void initState() {
+    super.initState();
+    // 如果传入了初始绑定信息，则预填充文本框
+    if (widget.initialBinding != null) {
+      nameController.text = widget.initialBinding!.name;
+      relationController.text = widget.initialBinding!.relationship;
+      phoneController.text = widget.initialBinding!.phoneNumber;
+    }
+  }
+
   void _submit() async {
     final name = nameController.text.trim();
     final relation = relationController.text.trim();
     final phone = phoneController.text.trim();
 
-    if (name.isEmpty || relation.isEmpty || phone.isEmpty) return;
+    // 检查输入是否为空
+    if (name.isEmpty || relation.isEmpty || phone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please fill in all fields.')),
+      );
+      return;
+    }
 
     final binding = ContactBinding(
       uuid: widget.uuid,
@@ -31,31 +50,34 @@ class _ContactBindPageState extends State<ContactBindPage> {
       phoneNumber: phone,
     );
 
-    // await bindingDao.insertBinding(binding);
-    // Navigator.pop(context, true);
-    // Check if a binding already exists for this UUID
-    final existingBinding = await bindingDao.getBindingByUuid(widget.uuid);
-    if (existingBinding != null) {
-      // If a binding exists, update it
+    // 检查是否存在初始绑定信息来决定是更新还是插入
+    if (widget.initialBinding != null) {
+      // 如果有初始绑定，说明是编辑模式，执行更新操作
       await bindingDao.updateBinding(binding);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Contact binding updated successfully!')),
       );
     } else {
-      // Otherwise, insert a new binding
+      // 否则，说明是新增绑定，执行插入操作
       await bindingDao.insertBinding(binding);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Contact bound successfully!')),
       );
     }
-    Navigator.pop(context, widget.uuid); // Crucial: pop with the UUID
+
+    // 操作完成后，返回到上一个页面，并传递一个表示成功的布尔值。
+    // 这比返回UUID更通用，因为ContactListPage的刷新逻辑通常不区分是新增还是修改。
+    Navigator.pop(context, true);
   }
 
   @override
   Widget build(BuildContext context) {
+    // 根据是否有初始绑定信息来设置 AppBar 标题和按钮文本
+    final isEditing = widget.initialBinding != null;
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Bind Contact"),
+        title: Text(isEditing ? "Edit Contact" : "Bind Contact"),
         centerTitle: false,
         backgroundColor: AppTheme.primaryColor.withOpacity(0.9),
         foregroundColor: Colors.white,
@@ -63,7 +85,7 @@ class _ContactBindPageState extends State<ContactBindPage> {
 
       body: Column(
         children: [
-          const Spacer(flex: 1), // 顶部留白，flex值越大，留白越多，Card越靠下
+          const Spacer(flex: 1),
           SingleChildScrollView(
             padding: const EdgeInsets.all(20),
             child: Card(
@@ -126,20 +148,11 @@ class _ContactBindPageState extends State<ContactBindPage> {
                     const SizedBox(height: 30),
                     Center(
                       child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: AppTheme.accentColor,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 24,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
                         onPressed: _submit,
-                        icon: const Icon(Icons.check),
-                        label: const Text("Confirm Binding"),
+                        icon: Icon(isEditing ? Icons.save : Icons.check),
+                        label: Text(
+                          isEditing ? "Save Changes" : "Confirm Binding",
+                        ),
                       ),
                     ),
                   ],
@@ -147,7 +160,7 @@ class _ContactBindPageState extends State<ContactBindPage> {
               ),
             ),
           ),
-          const Spacer(flex: 4), // 底部留白，flex值越大，留白越多，Card越靠上
+          const Spacer(flex: 4),
         ],
       ),
     );

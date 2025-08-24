@@ -5,6 +5,7 @@ import 'package:orbits_new/database/models/contact_device.dart';
 import 'package:orbits_new/database/dao/device_dao.dart';
 import 'dart:convert'; // JSON encoding/decoding library
 
+// 这个文件热启动是没有问题的！
 // Defines scan mode enum, these modes will be passed to the native service
 enum ScanMode { highFrequency, lowPower }
 
@@ -114,12 +115,6 @@ class BluetoothScanService {
     );
     print("[BluetoothScanService] Dart: KnownUserUUIDs: $knownUserUUIDs");
     try {
-      // 先设置监听器，确保在服务启动前就准备好接收数据
-      _listenToNativeScanResults();
-      print(
-        "[BluetoothScanService] Dart: Scan results listener set up before service start",
-      );
-
       // Invoke native method to start service, passing the necessary data
       final result = await _methodChannel.invokeMethod('startScanService', {
         'secretKey': secretKey,
@@ -129,12 +124,8 @@ class BluetoothScanService {
             : 'low_power',
       });
       print("[BluetoothScanService] Dart: Native method call result: $result");
-
-      // 添加延迟确保监听器完全设置
-      await Future.delayed(const Duration(milliseconds: 300));
-      print(
-        "[BluetoothScanService] Dart: Service start completed with listener ready",
-      );
+      // Start listening to native scan results only after the service has been successfully started
+      _listenToNativeScanResults();
     } on PlatformException catch (e) {
       print(
         "[BluetoothScanService] Dart: Failed to start native scan service: ${e.message}",
@@ -201,10 +192,6 @@ class BluetoothScanService {
     _scanResultsSubscription = _eventChannel.receiveBroadcastStream().listen(
       (dynamic scanResultJson) async {
         print("[BluetoothScanService] Received scan result: $scanResultJson");
-
-        // 添加更多调试信息
-        print("[BluetoothScanService] Dart: Processing scan result...");
-
         // Assuming native side sends JSON string
         final Map<String, dynamic> scanResultMap = jsonDecode(
           scanResultJson,
@@ -305,22 +292,6 @@ class BluetoothScanService {
       },
     );
     print("[BluetoothScanService] Scan results listener setup completed");
-  }
-
-  /// 强制重新设置监听器（用于冷启动时确保监听器正确设置）
-  Future<void> forceSetupListener() async {
-    print("[BluetoothScanService] Force setting up scan results listener...");
-
-    // 取消现有订阅
-    _scanResultsSubscription?.cancel();
-    _scanResultsSubscription = null;
-
-    // 重新设置监听器
-    _listenToNativeScanResults();
-
-    // 等待监听器设置完成
-    await Future.delayed(const Duration(milliseconds: 300));
-    print("[BluetoothScanService] Force listener setup completed");
   }
 
   /// 刷新已知用户UUID列表

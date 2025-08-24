@@ -33,10 +33,11 @@ class BindingDao {
     final db = await DBHelper.database;
     await db.update(
       'contact_bindings',
-      binding.toMap(),
+      // binding.toMap(),
+      binding.toUpdateMap(), // <- 使用新的方法
       where: 'uuid = ?',
       whereArgs: [binding.uuid],
-      conflictAlgorithm: ConflictAlgorithm.replace,
+      // conflictAlgorithm: ConflictAlgorithm.replace,// 移除 conflictAlgorithm，因为 update 操作不需要它
     );
   }
 

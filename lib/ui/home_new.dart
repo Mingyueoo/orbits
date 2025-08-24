@@ -10,6 +10,7 @@ import 'package:orbits_new/controllers/home_service_logic.dart'; // 导入新的
 import 'package:orbits_new/utils/qr_service.dart';
 import 'package:orbits_new/background/ble_work_manager.dart';
 
+// 这个文件热启动是没有问题的！
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
 
@@ -37,9 +38,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _initializeApp() async {
     try {
       final logic = Provider.of<HomeServiceLogic>(context, listen: false);
-
-      // 1. 等待HomeServiceLogic初始化完成
-      await Future.delayed(const Duration(milliseconds: 200));
 
       // 1. 先加载数据库数据
       await _loadDatabaseData(logic);

@@ -18,14 +18,9 @@ class ContactListPage extends StatefulWidget {
 class _ContactListPageState extends State<ContactListPage> {
   final DeviceDao deviceDao = DeviceDao();
   final BindingDao bindingDao = BindingDao();
-  // We will now display ContactSummary objects instead of raw devices
   List<ContactSummary> contactSummaries = [];
-  // The bindingMap and devices list are still useful internally for processing
-  // But the UI will directly use contactSummaries
-  List<ContactDevice> devices =
-      []; // Still needed for _loadDevices and internal processing
-  Map<String, ContactBinding?> bindingMap =
-      {}; // Still needed for _loadDevices and internal processing
+  List<ContactDevice> devices = [];
+  Map<String, ContactBinding?> bindingMap = {};
 
   @override
   void initState() {
@@ -57,27 +52,14 @@ class _ContactListPageState extends State<ContactListPage> {
 
   // Helper method to create ContactSummary list from devices and bindingMap
   List<ContactSummary> _createContactSummaries(
-    List<ContactDevice> devices,
-    Map<String, ContactBinding?> bindingMap,
-  ) {
+      List<ContactDevice> devices,
+      Map<String, ContactBinding?> bindingMap,
+      ) {
     List<ContactSummary> result = [];
 
     // Iterate through devices and try to find a binding
     for (final device in devices) {
       final binding = bindingMap[device.uuid];
-      // 旧的代码我需要理解一下
-      // If a binding exists, use its details; otherwise, use default/placeholder values
-      // result.add(
-      //   ContactSummary(
-      //     name: binding?.name ?? "Unknown Contact", // Default name if not bound
-      //     relationship: binding?.relationship ?? "N/A", // Default relationship
-      //     uuid: device.uuid,
-      //     rssi: device.rssi,
-      //     durationMinutes: device.contactDurationMinutes,
-      //     phoneNumber: binding?.phoneNumber ?? "N/A", // Default phone number
-      //   ),
-      // );
-      // *** THIS IS THE KEY CHANGE: Only add to result if a binding exists ***
       if (binding != null) {
         result.add(
           ContactSummary(
@@ -85,7 +67,7 @@ class _ContactListPageState extends State<ContactListPage> {
             relationship: binding.relationship,
             uuid: device.uuid,
             rssi: device.rssi,
-            durationMinutes: device.contactDurationMinutes,
+            durationMinutes: device.contactDuration,
             phoneNumber: binding.phoneNumber,
           ),
         );
@@ -95,6 +77,59 @@ class _ContactListPageState extends State<ContactListPage> {
     // Sort by contact duration in descending order
     result.sort((a, b) => b.durationMinutes.compareTo(a.durationMinutes));
     return result;
+  }
+
+  // 新增：删除绑定联系人
+  Future<void> _deleteBinding(String uuid) async {
+    // 弹出确认对话框
+    final bool? confirm = await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Delete Contact"),
+          content: const Text("Are you sure you want to delete this contact?"),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("Cancel"),
+              onPressed: () => Navigator.of(context).pop(false),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text("Delete"),
+              onPressed: () => Navigator.of(context).pop(true),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirm == true) {
+      // 从数据库中删除绑定
+      await bindingDao.deleteBinding(uuid);
+      // 重新加载所有数据以更新UI
+      await _loadAllContactData();
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Contact deleted successfully!')),
+      );
+    }
+  }
+
+  // 新增：编辑绑定联系人
+  void _editBinding(ContactBinding binding) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ContactBindPage(
+          uuid: binding.uuid,
+          initialBinding: binding, // 传入当前的绑定信息
+        ),
+      ),
+    );
+
+    if (result == true) {
+      await _loadAllContactData(); // 编辑成功后刷新列表
+    }
   }
 
   // 在 _ContactListPageState 类中添加此方法
@@ -175,52 +210,106 @@ class _ContactListPageState extends State<ContactListPage> {
       body: contactSummaries.isEmpty
           ? const Center(child: Text("No contact devices found."))
           : ListView.builder(
-              itemCount: contactSummaries.length,
-              itemBuilder: (_, i) {
-                final summary = contactSummaries[i];
-                // We no longer need to look up in bindingMap here, as summary already contains bound info
-                // final boundText = summary.name == "Unknown Contact"
-                //     ? "👤 Not bound"
-                //     : "👤 ${summary.name} (${summary.relationship})";
+        itemCount: contactSummaries.length,
+        itemBuilder: (_, i) {
+          final summary = contactSummaries[i];
 
-                return Card(
-                  elevation: 2,
-                  margin: const EdgeInsets.symmetric(vertical: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
+          // 从 bindingMap 中获取完整的绑定对象以进行编辑
+          final binding = bindingMap[summary.uuid];
+
+          // We no longer need to look up in bindingMap here, as summary already contains bound info
+          // final boundText = summary.name == "Unknown Contact"
+          //     ? "👤 Not bound"
+          //     : "👤 ${summary.name} (${summary.relationship})";
+
+          return Card(
+            elevation: 2,
+            margin: const EdgeInsets.symmetric(vertical: 8),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            // color: Colors.white.withOpacity(0.9),
+            child: ListTile(
+              leading: CircleAvatar(
+                backgroundColor: AppTheme.primaryColor,
+                child: Text(
+                  summary.name[0],
+                  // contact['name'][0],
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+              title: Text(
+                summary.name,
+                // contact['name'],
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              subtitle: Text(
+                // 'Contact time: ${contact['duration'].inMinutes} minutes',
+                'Contact time: ${summary.durationMinutes} minutes',
+                style: TextStyle(color: Colors.grey[700]),
+              ),
+
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min, // 确保 Row 不会占据所有可用空间
+                children: [
+                  // 1. 打电话图标按钮
+                  IconButton(
+                    icon: const Icon(
+                      Icons.call,
+                      color: AppTheme.accentColor,
+                    ),
+                    onPressed: () {
+                      debugPrint('Dialing ${summary.phoneNumber}');
+                      _makePhoneCall(summary.phoneNumber);
+                    },
                   ),
-                  color: Colors.white.withOpacity(0.9),
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: AppTheme.primaryColor,
-                      child: Text(
-                        summary.name[0],
-                        // contact['name'][0],
-                        style: const TextStyle(color: Colors.white),
+                  // 2. 更多选项菜单
+                  PopupMenuButton<String>(
+                    onSelected: (String result) {
+                      if (result == 'edit') {
+                        if (binding != null) {
+                          _editBinding(binding);
+                        }
+                      } else if (result == 'delete') {
+                        _deleteBinding(summary.uuid);
+                      }
+                    },
+                    itemBuilder: (BuildContext context) =>
+                    <PopupMenuEntry<String>>[
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit, color: Colors.blue),
+                            SizedBox(width: 8),
+                            Text('Edit'),
+                          ],
+                        ),
                       ),
-                    ),
-                    title: Text(
-                      summary.name,
-                      // contact['name'],
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                    subtitle: Text(
-                      // 'Contact time: ${contact['duration'].inMinutes} minutes',
-                      'Contact time: ${summary.durationMinutes} minutes',
-                      style: TextStyle(color: Colors.grey[700]),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.call, color: AppTheme.accentColor),
-                      onPressed: () {
-                        debugPrint('Dialing ${summary.phoneNumber}');
-                        // 真机调试可用：
-                        _makePhoneCall(summary.phoneNumber); // 调用新的私有方法
-                      },
-                    ),
+                      const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete, color: Colors.red),
+                            SizedBox(width: 8),
+                            Text('Delete'),
+                          ],
+                        ),
+                      ),
+                    ],
+                    icon: const Icon(Icons.more_vert),
                   ),
-                );
+                ],
+              ),
+              onTap: () {
+                // 如果列表项本身没有其他导航功能，可以保留这个 onTap，或者移除以避免与打电话按钮冲突
+                // 例如，如果你想点击整个列表项进入联系人详情页，可以保留它
+                // 如果你希望点击列表项只做打电话一件事，那么电话图标就显得重复了，但在UI设计上，独立的图标更清晰
               },
             ),
+          );
+        },
+      ),
     );
   }
 }

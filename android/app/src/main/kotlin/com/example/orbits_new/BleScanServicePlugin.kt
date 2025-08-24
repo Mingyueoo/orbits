@@ -60,18 +60,59 @@ class BleScanServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
         when (call.method) {
             "startScanService" -> {
                 Log.d("BleScanServicePlugin", "Received startScanService call from Flutter.") // Add log
+                // 提取Flutter传递的参数
+                val args = call.arguments as Map<String, Any>?
+                val secretKey = args?.get("secretKey") as String?
+                val knownUserUUIDs = args?.get("userUUIDs") as List<String>?
+
+                Log.d("BleScanServicePlugin", "Extracted secretKey length: ${secretKey?.length}")
+                Log.d("BleScanServicePlugin", "Extracted knownUserUUIDs count: ${knownUserUUIDs?.size}")
+
+                // 验证参数
+                if (secretKey.isNullOrEmpty()) {
+                    Log.e("BleScanServicePlugin", "Missing required parameter: secretKey")
+                    result.error("MISSING_PARAMETERS", "secretKey is required", null)
+                    return
+                }
+
+                // knownUserUUIDs可以为空（用户第一次使用应用时）
+                if (knownUserUUIDs == null) {
+                    Log.e("BleScanServicePlugin", "knownUserUUIDs is null")
+                    result.error("MISSING_PARAMETERS", "knownUserUUIDs cannot be null", null)
+                    return
+                }
+
+                // 设置MethodChannel，让BleScanForegroundService可以接收方法调用
+                BleScanForegroundService.flutterMethodChannel = methodChannel
+
                 // Create an Intent to start BleScanForegroundService.
                 val intent = Intent(context, BleScanForegroundService::class.java)
-                intent.action = "ACTION_START_SCAN_SERVICE" // Set custom action
-                // Check if the Android version is Android O (API 26) or higher.
+                intent.action = "ACTION_START_SCAN_SERVICE"
+
+                // 将参数传递给服务
+                intent.putExtra("secretKey", secretKey)
+                intent.putStringArrayListExtra("knownUserUUIDs", ArrayList(knownUserUUIDs))
+
+                // 启动服务
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    // If O or higher, start the service as a foreground service.
                     context.startForegroundService(intent)
                 } else {
-                    // For older Android versions, start the service normally.
                     context.startService(intent)
                 }
-                // Return a success result to Flutter.
+
+                // 等待服务启动后，通过MethodChannel发送启动扫描的命令
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    try {
+                        val startArgs = mapOf(
+                            "secretKey" to secretKey,
+                            "userUUIDs" to knownUserUUIDs
+                        )
+                        BleScanForegroundService.flutterMethodChannel?.invokeMethod("startScanService", startArgs)
+                        Log.d("BleScanServicePlugin", "Sent startScanService command to BleScanForegroundService")
+                    } catch (e: Exception) {
+                        Log.e("BleScanServicePlugin", "Error sending startScanService command: ${e.message}")
+                    }
+                }, 1000) // 延迟1秒，确保服务已启动
                 result.success(true)
             }
             "stopScanService" -> {
@@ -132,5 +173,3 @@ class BleScanServicePlugin : FlutterPlugin, MethodChannel.MethodCallHandler, Eve
         Log.d("BleScanServicePlugin", "EventChannel onCancel called, clearing eventSink.") // Add log
     }
 }
-
-

@@ -3,103 +3,91 @@ import 'package:flutter/services.dart';
 import 'package:orbits_new/plugins/ble_uuid_broadcaster.dart';
 import 'package:orbits_new/plugins/ble_scan_service.dart';
 
-// Define unique names for WorkManager tasks
+/// WorkManager 任务唯一名称
 const String bleScanTask = "bleScanTask";
 
-// WorkManager tasks run in a separate isolate, requiring their own BluetoothScanService instance
-final BluetoothScanService _bluetoothScanServiceForWorkmanager =
-    BluetoothScanService();
-
-// Entry point function for Workmanager tasks.
-// The @pragma('vm:entry-point') annotation is required, allowing Workmanager to execute this function in a separate isolate.
+/// 后台任务入口（必须加 @pragma 保证 isolate 可执行）
 @pragma('vm:entry-point')
 void callbackDispatcher() {
+  // 在后台isolate中，我们不直接使用Flutter插件，而是通过原生服务
+  // 避免MethodChannel初始化问题
+
   Workmanager().executeTask((task, inputData) async {
-    switch (task) {
-      case bleScanTask:
-        print(
-          "[Workmanager] Executing BLE service restart task.",
-        ); // Log task execution
+    try {
+      switch (task) {
+        case bleScanTask:
+          print("[WorkManager] === BLE 周期任务开始 ===");
 
-        try {
-          // Attempt to start BLE broadcast foreground service
-          // WorkManager tasks directly call static methods of BleUuidBroadcaster to send start commands to the native service.
-          await BleUuidBroadcaster.startBroadcast();
-          print("[Workmanager] BleBroadcastService start command sent.");
-        } on PlatformException catch (e) {
-          print(
-            "[Workmanager] Failed to send start command for BleBroadcastService: ${e.message}",
-          );
-        }
-
-        try {
-          // Attempt to start BLE scan foreground service
-          // WorkManager tasks call methods on the BluetoothScanService instance to send start commands to the native service.
-          // First, check if the service is already running to avoid unnecessary start commands.
-          final bool isScanServiceRunning =
-              await _bluetoothScanServiceForWorkmanager.isServiceRunning();
-          if (!isScanServiceRunning) {
-            await _bluetoothScanServiceForWorkmanager.startScanningService();
-            print("[Workmanager] BleScanForegroundService start command sent.");
-          } else {
-            print("[Workmanager] BleScanForegroundService already running.");
+          // 1️⃣ 参数检查
+          if (inputData == null ||
+              !inputData.containsKey('secretKey') ||
+              !inputData.containsKey('userUuid') ||
+              !inputData.containsKey('knownUserUUIDs')) {
+            print("[WorkManager][Error] 缺少必要参数，任务终止。");
+            return Future.value(false);
           }
-        } on PlatformException catch (e) {
-          print(
-            "[Workmanager] Failed to send start command for BleScanForegroundService: ${e.message}",
-          );
-        }
 
-        print(
-          "[Workmanager] BLE service restart task completed.",
-        ); // Log task completion
-        return Future.value(true); // Task completed successfully
-      default:
-        print("[Workmanager] Unknown task: $task"); // Log unknown task
-        return Future.value(false); // Unknown task, return failure
+          final String secretKey = inputData['secretKey']!;
+          final String userUuid = inputData['userUuid']!;
+          final List<String> knownUserUUIDs = List<String>.from(
+            inputData['knownUserUUIDs']!,
+          );
+
+          print("[WorkManager] 参数验证通过:");
+          print("[WorkManager] - secretKey: ${secretKey.length} 字符");
+          print("[WorkManager] - userUuid: $userUuid");
+          print("[WorkManager] - knownUserUUIDs: ${knownUserUUIDs.length} 个");
+
+          // 2️⃣ 在后台任务中，我们只记录日志，不直接操作BLE
+          // BLE服务应该通过前台服务持续运行，WorkManager只是作为备用检查
+          print("[WorkManager] 后台任务完成 - BLE服务应该通过前台服务持续运行");
+          print("[WorkManager] === BLE 周期任务完成 ===");
+          return Future.value(true);
+
+        default:
+          print("[WorkManager][Error] 未知任务: $task");
+          return Future.value(false);
+      }
+    } catch (e) {
+      // 捕获所有潜在异常
+      print("[WorkManager][Error] 任务执行过程中发生未捕获的异常: $e");
+      return Future.value(false); // 任务失败
     }
   });
 }
 
-/// Initializes Workmanager
-/// Must be called once at application startup.
+/// 初始化 WorkManager（应用启动时调用一次）
 Future<void> initWorkManager() async {
-  await Workmanager().initialize(
-    callbackDispatcher, // Specify the entry point function for WorkManager tasks
-    isInDebugMode: true, // Enable debug logs in development mode
-  );
-  print("[Workmanager] WorkManager initialized."); // Add initialization log
+  await Workmanager().initialize(callbackDispatcher, isInDebugMode: true);
+  print("[WorkManager] 初始化完成。");
 }
 
-/// Registers a periodic BLE scan task
-/// Call when the user enables the Bluetooth detection service.
-Future<void> registerBleScanTask() async {
+/// 注册 BLE 周期任务（后台低频扫描）
+Future<void> registerBleScanTask({
+  required String secretKey,
+  required String userUuid,
+  required List<String> knownUserUUIDs,
+}) async {
   await Workmanager().registerPeriodicTask(
-    "ble-scan-task-id", // Unique task ID, used for registration and cancellation
-    bleScanTask, // Task name, corresponds to the case in callbackDispatcher
-    frequency: const Duration(
-      minutes: 15,
-    ), // Task execution frequency, minimum 15 minutes on Android
+    "ble-scan-task-id",
+    bleScanTask,
+    frequency: const Duration(minutes: 15), // Android 最小 15 分钟
     constraints: Constraints(
-      // Constraints for task execution
-      networkType: NetworkType.notRequired, // No network connection required
-      requiresBatteryNotLow: false, // Does not require battery not low
-      requiresCharging: false, // Does not require device to be charging
+      networkType: NetworkType.notRequired,
+      requiresBatteryNotLow: false,
+      requiresCharging: false,
     ),
-    // Can add initialDelay: Duration(seconds: 10), if you want the task to execute for the first time after a delay
+    inputData: {
+      'secretKey': secretKey,
+      'userUuid': userUuid,
+      'knownUserUUIDs': knownUserUUIDs,
+    },
   );
-  print(
-    "[Workmanager] Periodic task 'ble-scan-task-id' registered.",
-  ); // Add registration log
+  print("[WorkManager] BLE 周期任务已注册。");
 }
 
-/// Cancels the periodic BLE scan task
-/// Call when the user disables the Bluetooth detection service.
+/// 取消 BLE 周期任务
 Future<void> cancelBleScanTask() async {
-  await Workmanager().cancelByUniqueName(
-    "ble-scan-task-id",
-  ); // Cancel task by unique ID
-  print(
-    "[Workmanager] Periodic task 'ble-scan-task-id' cancelled.",
-  ); // Add cancellation log
+  await Workmanager().cancelByUniqueName("ble-scan-task-id");
+  print("[WorkManager] BLE 周期任务已取消。");
 }

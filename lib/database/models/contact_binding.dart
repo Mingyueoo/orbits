@@ -23,6 +23,15 @@ class ContactBinding {
     };
   }
 
+  // **新增**：专门用于更新的 map，不包含 id 和 uuid
+  Map<String, dynamic> toUpdateMap() {
+    return {
+      'name': name,
+      'relationship': relationship,
+      'phoneNumber': phoneNumber,
+    };
+  }
+
   // 工厂构造函数创建Binding对象
   factory ContactBinding.fromMap(Map<String, dynamic> map) {
     return ContactBinding(

@@ -1,4 +1,4 @@
-package com.example.orbits_new
+package com.example.orbitz
 
 import io.flutter.embedding.android.FlutterActivity
 
@@ -18,7 +18,7 @@ class MainActivity: FlutterActivity() {
         flutterEngine.plugins.add(BleScanServicePlugin())
 
 
-        // ✅ 缓存当前 FlutterEngine，供后台服务使用
+        // 缓存当前 FlutterEngine，供后台服务使用
         FlutterEngineCache
             .getInstance()
             .put("my_flutter_engine", flutterEngine)

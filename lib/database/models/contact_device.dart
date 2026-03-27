@@ -37,7 +37,7 @@ class ContactDevice {
       id: map['id'] as int?,
       uuid: map['uuid'] as String? ?? 'unknown_uuid',
       firstSeen:
-      map['first_seen'] as String? ?? DateTime.now().toIso8601String(),
+          map['first_seen'] as String? ?? DateTime.now().toIso8601String(),
       lastSeen: map['last_seen'] as String? ?? DateTime.now().toIso8601String(),
       rssi: map['rssi'] as int? ?? -100,
       // Use a default out-of-range value

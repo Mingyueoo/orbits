@@ -8,7 +8,8 @@ import 'package:orbits_new/widgets/interactive_card.dart';
 import 'package:orbits_new/widgets/info_card.dart';
 import 'package:orbits_new/controllers/home_service_logic.dart'; // 导入新的业务逻辑类
 import 'package:orbits_new/utils/qr_service.dart';
-import 'package:orbits_new/background/ble_work_manager.dart';
+// import 'package:orbits_new/background/ble_work_manager.dart';
+import 'package:orbits_new/utils/time_formatter.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -44,9 +45,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // 1. 先加载数据库数据
       await _loadDatabaseData(logic);
 
-      // 2. 启动BLE服务
-      await _startBleServices(logic);
-
       print("[HomePage] App initialization completed successfully");
     } catch (e) {
       print("[HomePage] Error during app initialization: $e");
@@ -70,18 +68,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// 启动BLE服务
-  Future<void> _startBleServices(HomeServiceLogic logic) async {
-    try {
-      // 启动服务（此时数据库已加载）
-      await logic.startServiceAutomatically();
-
-      print("[HomePage] BLE services started successfully");
-    } catch (e) {
-      print("[HomePage] Error starting BLE services: $e");
-    }
-  }
-
   /// 监听应用程序生命周期状态变化，并通知逻辑层
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -100,7 +86,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text("确定"),
+            child: const Text("Confirm"),
           ),
         ],
       ),
@@ -126,7 +112,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final hasPermission = await QrService.instance.requestCameraPermission();
     if (!hasPermission) {
       if (!context.mounted) return;
-      _showDialog(context, "权限不足", "请在设置中开启相机权限。");
+      _showDialog(
+        context,
+        "permission denied",
+        "Please enable camera permissions in settings.",
+      );
       return;
     }
 
@@ -143,10 +133,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       await _refreshScanServiceAfterQrScan();
 
       if (!context.mounted) return;
-      _showDialog(context, "添加成功", "已添加联系人：${device.uuid}");
+      _showDialog(
+        context,
+        "Added successfully",
+        "${device.uuid}  added as a contact",
+      );
     } catch (e) {
       if (!context.mounted) return;
-      _showDialog(context, "二维码无效", e.toString());
+      _showDialog(context, "QR Code Invalid", e.toString());
     }
   }
 
@@ -161,27 +155,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _showBleStatus(BuildContext context) async {
-    final logic = Provider.of<HomeServiceLogic>(context, listen: false);
-    final status = await logic.getDetailedBleStatus();
-
-    if (!context.mounted) return;
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('BLE Service Status'),
-        content: SingleChildScrollView(child: Text(status)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("确定"),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     // 使用 Consumer 来监听 HomeServiceLogic 的变化，当数据更新时，只重建这部分 UI
@@ -192,47 +165,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           appBar: AppBar(
             title: const Text("Orbitz"),
             centerTitle: true,
-            backgroundColor: AppTheme.primaryColor.withOpacity(0.9),
+            backgroundColor: AppTheme.primaryColor.withAlpha(
+              (255 * 0.9).round(),
+            ),
             foregroundColor: Colors.white,
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.info_outline),
-                onPressed: () => _showBleStatus(context),
-                tooltip: 'Check BLE Status',
-              ),
-
-              IconButton(
-                icon: const Icon(Icons.bluetooth_searching),
-                onPressed: () async {
-                  final logic = Provider.of<HomeServiceLogic>(
-                    context,
-                    listen: false,
-                  );
-                  final isActive = await logic.checkScanServiceActive();
-
-                  if (!context.mounted) return;
-
-                  showDialog(
-                    context: context,
-                    builder: (_) => AlertDialog(
-                      title: const Text('扫描服务状态'),
-                      content: Text(
-                        isActive
-                            ? '✅ 扫描服务正在运行\n\n请检查日志中是否有扫描结果。'
-                            : '❌ 扫描服务未运行\n\n请检查服务启动状态。',
-                      ),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(context),
-                          child: const Text("确定"),
-                        ),
-                      ],
-                    ),
-                  );
-                },
-                tooltip: '检查扫描服务状态',
-              ),
-            ],
           ),
           backgroundColor: theme.scaffoldBackgroundColor,
           body: Center(
@@ -340,7 +276,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           return InfoCard(
                             label: "Devices Found",
                             value: "$count",
-                            color: AppTheme.primaryColor.withOpacity(0.8),
+                            color: AppTheme.primaryColor.withAlpha(
+                              (255 * 0.8).round(),
+                            ),
                           );
                         },
                       ),
@@ -353,10 +291,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             "[UI] StreamBuilder update - connectionState: ${snapshot.connectionState}, data: ${snapshot.data}, error: ${snapshot.error}",
                           );
                           final minutes = snapshot.data ?? 0;
+                          // 使用时间格式化工具
+                          final formattedTime =
+                              TimeFormatter.formatMinutesToHoursMinutes(
+                                minutes,
+                              );
                           return InfoCard(
                             label: "Contact Time",
-                            value: "$minutes",
-                            color: AppTheme.accentColor.withOpacity(0.7),
+                            value: formattedTime,
+                            color: AppTheme.accentColor.withAlpha(
+                              (255 * 0.7).round(),
+                            ),
                           );
                         },
                       ),
@@ -373,14 +318,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         label: "My QR Code",
                         icon: Icons.qr_code,
                         onTap: () => _showMyQrCode(context),
-                        color: AppTheme.primaryColor.withOpacity(0.7),
+                        color: AppTheme.primaryColor.withAlpha(
+                          (255 * 0.7).round(),
+                        ),
                       ),
                       const SizedBox(width: 16),
                       InteractiveCard(
                         label: "Add Contact",
                         icon: Icons.qr_code_scanner,
                         onTap: () => _scanQrCode(context),
-                        color: AppTheme.accentColor.withOpacity(0.7),
+                        color: AppTheme.accentColor.withAlpha(
+                          (255 * 0.7).round(),
+                        ),
                       ),
                     ],
                   ),

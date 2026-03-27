@@ -2,14 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/foundation.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:rxdart/rxdart.dart';
 import 'package:orbits_new/background/ble_work_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:orbits_new/database/dao/device_dao.dart';
-import 'package:orbits_new/database/models/contact_device.dart';
 import 'package:orbits_new/plugins/ble_uuid_broadcaster.dart';
 import 'package:orbits_new/plugins/ble_scan_service.dart';
 import 'package:orbits_new/utils/secure_storage_service.dart';
@@ -17,8 +14,15 @@ import 'package:orbits_new/utils/secure_storage_service.dart';
 // 定义蓝牙工作模式的枚举，避免硬编码字符串
 enum BleWorkMode { highFrequency, lowPower }
 
-// 定义服务状态的枚举，提供更清晰的状态管理
-enum ServiceState { initializing, running, stopped, error, permissionDenied }
+// 【修改】重新添加stopping状态
+enum ServiceState {
+  initializing,
+  running,
+  stopped,
+  error,
+  permissionDenied,
+  stopping,
+}
 
 class HomeServiceLogic with ChangeNotifier {
   // 状态管理
@@ -56,10 +60,6 @@ class HomeServiceLogic with ChangeNotifier {
   // 构造函数：延迟初始化
   HomeServiceLogic() {
     print("[HomeServiceLogic] Constructor called");
-    // 延迟初始化，避免在构造函数中执行异步操作
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   initialize();
-    // });
 
     // 修改：立即开始初始化，而不是等待postFrameCallback
     _initializeImmediately();
@@ -85,8 +85,34 @@ class HomeServiceLogic with ChangeNotifier {
     try {
       print("[HomeServiceLogic] Starting immediate initialization...");
 
-      // 1. 先检查权限
-      if (!await _checkPermissions()) {
+      // 【修改】添加WorkManager初始化
+      await _initializeWorkManager();
+
+      // 1. 先检查并请求权限，如果权限被拒绝则等待重试
+      bool permissionsGranted = false;
+      int permissionRetryCount = 0;
+      const maxRetries = 3;
+
+      while (!permissionsGranted && permissionRetryCount < maxRetries) {
+        permissionsGranted = await _checkPermissions();
+
+        if (!permissionsGranted) {
+          permissionRetryCount++;
+          print(
+            "[HomeServiceLogic] Permissions not granted, retry $permissionRetryCount/$maxRetries",
+          );
+
+          if (permissionRetryCount < maxRetries) {
+            // 等待一段时间后重试，给用户时间考虑
+            await Future.delayed(const Duration(seconds: 2));
+          }
+        }
+      }
+
+      if (!permissionsGranted) {
+        print(
+          "[HomeServiceLogic] Permissions denied after $maxRetries attempts",
+        );
         _updateServiceState(ServiceState.permissionDenied);
         _initializationCompleter!.complete();
         return;
@@ -109,7 +135,7 @@ class HomeServiceLogic with ChangeNotifier {
 
       // 6. 启动服务（如果需要）
       if (_serviceState == ServiceState.stopped) {
-        await _startServices();
+        await startServices(); // 【修改】改为public方法
       }
 
       // 7. 启动状态同步定时器
@@ -126,55 +152,21 @@ class HomeServiceLogic with ChangeNotifier {
     }
   }
 
-  /// 异步初始化方法
-  // Future<void> initialize() async {
-  //   if (_initializationCompleter != null) {
-  //     return _initializationCompleter!.future;
-  //   }
-  //
-  //   _initializationCompleter = Completer<void>();
-  //
-  //   try {
-  //     print("[HomeServiceLogic] Starting initialization...");
-  //
-  //     // 1. 先检查权限
-  //     if (!await _checkPermissions()) {
-  //       _updateServiceState(ServiceState.permissionDenied);
-  //       _initializationCompleter!.complete();
-  //       return;
-  //     }
-  //
-  //     // 2. 初始化数据库
-  //     await _deviceDao.initialize();
-  //
-  //     // 3. 初始化蓝牙扫描服务
-  //     await _bluetoothScanService.init();
-  //
-  //     // 4. 设置服务重启回调
-  //     _bleUuidBroadcaster.setServiceRestartedCallback(() {
-  //       print("[HomeServiceLogic] Service restart callback triggered");
-  //       _restartBroadcastService();
-  //     });
-  //
-  //     // 5. 检查现有服务状态
-  //     await _checkExistingServices();
-  //
-  //     // 6. 启动服务（如果需要）
-  //     if (_serviceState == ServiceState.stopped) {
-  //       await _startServices();
-  //     }
-  //
-  //     // 7. 启动状态同步定时器
-  //     _startStateSyncTimer();
-  //
-  //     print("[HomeServiceLogic] Initialization completed successfully");
-  //     _initializationCompleter!.complete();
-  //   } catch (e) {
-  //     print("[HomeServiceLogic] Initialization failed: $e");
-  //     _updateServiceState(ServiceState.error);
-  //     _initializationCompleter!.completeError(e);
-  //   }
-  // }
+  /// 【新增】初始化WorkManager
+  Future<void> _initializeWorkManager() async {
+    try {
+      // 初始化WorkManager
+      await BleWorkManager.initialize();
+
+      // 注册周期性任务
+      await BleWorkManager.registerPeriodicTask();
+
+      print("[HomeServiceLogic] WorkManager initialized and registered");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to initialize WorkManager: $e");
+      // WorkManager初始化失败不应该阻止整个应用启动
+    }
+  }
 
   /// 检查现有服务状态
   Future<void> _checkExistingServices() async {
@@ -279,7 +271,7 @@ class HomeServiceLogic with ChangeNotifier {
     print("[HomeServiceLogic] Restarting services (attempt $_restartAttempts)");
 
     try {
-      await _startServices();
+      await startServices(); // 【修改】改为public方法
       _restartAttempts = 0; // 重置计数器
     } catch (e) {
       print("[HomeServiceLogic] Restart failed: $e");
@@ -290,8 +282,8 @@ class HomeServiceLogic with ChangeNotifier {
     }
   }
 
-  /// 启动所有服务
-  Future<void> _startServices() async {
+  /// 【修改】启动所有服务（包括WorkManager）- 改为public方法
+  Future<void> startServices() async {
     try {
       _updateServiceState(ServiceState.initializing);
 
@@ -305,11 +297,14 @@ class HomeServiceLogic with ChangeNotifier {
         "[HomeServiceLogic] Starting services with ${knownUserUUIDs.length} known devices",
       );
 
+      // 【新增】存储服务参数到SharedPreferences供WorkManager使用
+      await _storeServiceParameters(secretKey, knownUserUUIDs, userUuid);
+
       // 并行启动服务
       await Future.wait([
         _startBroadcastService(userUuid, secretKey),
         _startScanService(secretKey, knownUserUUIDs),
-        _registerBackgroundTask(userUuid, secretKey, knownUserUUIDs),
+        _initializeWorkManager(), // 【新增】初始化WorkManager
       ]);
 
       _updateServiceState(ServiceState.running);
@@ -318,6 +313,35 @@ class HomeServiceLogic with ChangeNotifier {
       print("[HomeServiceLogic] Failed to start services: $e");
       _updateServiceState(ServiceState.error);
       throw e;
+    }
+  }
+
+  /// 存储服务参数供WorkManager使用
+  Future<void> _storeServiceParameters(
+    String secretKey,
+    List<String> knownUserUUIDs,
+    String userUuid,
+  ) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      // 存储扫描服务参数
+      await prefs.setString('stored_secret_key', secretKey);
+      await prefs.setString('stored_user_uuids', jsonEncode(knownUserUUIDs));
+      await prefs.setBool('has_secret_key', true);
+      await prefs.setBool('has_user_uuids', true);
+      await prefs.setBool('ble_service_should_run', true);
+
+      // 存储广播服务参数
+      await prefs.setString('stored_broadcast_user_uuid', userUuid);
+      await prefs.setString('stored_broadcast_secret_key', secretKey);
+      await prefs.setBool('has_broadcast_user_uuid', true);
+      await prefs.setBool('has_broadcast_secret_key', true);
+      await prefs.setBool('ble_broadcast_service_should_run', true);
+
+      print("[HomeServiceLogic] Service parameters stored for WorkManager");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to store service parameters: $e");
     }
   }
 
@@ -331,19 +355,6 @@ class HomeServiceLogic with ChangeNotifier {
     print("[HomeServiceLogic] Broadcast service started");
   }
 
-  /// 启动扫描服务
-  // Future<void> _startScanService(
-  //   String secretKey,
-  //   List<String> knownUserUUIDs,
-  // ) async {
-  //   await _bluetoothScanService.startScanningService(
-  //     secretKey: secretKey,
-  //     knownUserUUIDs: knownUserUUIDs,
-  //   );
-  //   _scanServiceRunning = true;
-  //   print("[HomeServiceLogic] Scan service started");
-  //
-  // }
   /// 启动扫描服务
   Future<void> _startScanService(
     String secretKey,
@@ -367,18 +378,62 @@ class HomeServiceLogic with ChangeNotifier {
     }
   }
 
-  /// 注册后台任务
-  Future<void> _registerBackgroundTask(
-    String userUuid,
-    String secretKey,
-    List<String> knownUserUUIDs,
-  ) async {
-    await registerBleScanTask(
-      secretKey: secretKey,
-      userUuid: userUuid,
-      knownUserUUIDs: knownUserUUIDs,
-    );
-    print("[HomeServiceLogic] Background task registered");
+  /// 停止所有服务（包括WorkManager）
+  Future<void> stopServices() async {
+    try {
+      _updateServiceState(ServiceState.stopping);
+
+      // 更新服务状态
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('ble_service_should_run', false);
+      await prefs.setBool('ble_broadcast_service_should_run', false);
+
+      // 并行停止服务
+      await Future.wait([
+        _stopBroadcastService(),
+        _stopScanService(),
+        _stopWorkManager(), //
+      ]);
+
+      _updateServiceState(ServiceState.stopped);
+      print("[HomeServiceLogic] All services stopped successfully");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to stop services: $e");
+      _updateServiceState(ServiceState.error);
+      throw e;
+    }
+  }
+
+  /// 停止广播服务
+  Future<void> _stopBroadcastService() async {
+    try {
+      await _bleUuidBroadcaster.stopBroadcast();
+      _broadcastServiceRunning = false;
+      print("[HomeServiceLogic] Broadcast service stopped");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to stop broadcast service: $e");
+    }
+  }
+
+  /// 停止扫描服务
+  Future<void> _stopScanService() async {
+    try {
+      await _bluetoothScanService.stopScanningService();
+      _scanServiceRunning = false;
+      print("[HomeServiceLogic] Scan service stopped");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to stop scan service: $e");
+    }
+  }
+
+  /// 停止WorkManager
+  Future<void> _stopWorkManager() async {
+    try {
+      await BleWorkManager.cancelAllTasks();
+      print("[HomeServiceLogic] WorkManager stopped");
+    } catch (e) {
+      print("[HomeServiceLogic] Failed to stop WorkManager: $e");
+    }
   }
 
   /// 重启广播服务
@@ -431,17 +486,54 @@ class HomeServiceLogic with ChangeNotifier {
   }
 
   /// 检查权限的辅助方法
+  /// 检查权限的辅助方法（优化版本）
   Future<bool> _checkPermissions() async {
-    final Map<Permission, PermissionStatus> statuses = await [
-      Permission.bluetoothScan,
-      Permission.bluetoothAdvertise,
-      Permission.bluetoothConnect,
-      Permission.locationWhenInUse,
-    ].request();
+    try {
+      // 先检查基础权限
+      final List<Permission> basicPermissions = [
+        Permission.bluetoothScan,
+        Permission.bluetoothAdvertise,
+        Permission.bluetoothConnect,
+        Permission.locationWhenInUse,
+        Permission.notification,
+        Permission.ignoreBatteryOptimizations, // 忽略电池优化
+      ];
 
-    final hasAllPermissions = !statuses.values.any((status) => status.isDenied);
-    print("[HomeServiceLogic] Permission check result: $hasAllPermissions");
-    return hasAllPermissions;
+      // 请求基础权限
+      final Map<Permission, PermissionStatus> basicStatuses =
+          await basicPermissions.request();
+
+      // 检查基础权限是否都授予
+      final basicGranted = !basicStatuses.values.any(
+        (status) =>
+            status.isDenied ||
+            status.isRestricted ||
+            status.isPermanentlyDenied,
+      );
+
+      if (!basicGranted) {
+        print("[HomeServiceLogic] Basic permissions not granted");
+        return false;
+      }
+
+      // 基础权限授予后，再请求后台位置权限
+      final backgroundLocationStatus = await Permission.locationAlways
+          .request();
+
+      if (backgroundLocationStatus.isGranted) {
+        print(
+          "[HomeServiceLogic] All permissions granted including background location",
+        );
+        return true;
+      } else {
+        print("[HomeServiceLogic] Background location permission denied");
+        // 可以在这里显示说明对话框，解释为什么需要后台位置权限
+        return false;
+      }
+    } catch (e) {
+      print("[HomeServiceLogic] Error checking permissions: $e");
+      return false;
+    }
   }
 
   /// 检查所有BLE服务的运行状态
@@ -469,24 +561,6 @@ class HomeServiceLogic with ChangeNotifier {
       print("[HomeServiceLogic] Error checking service status: $e");
       return {'broadcast': false, 'scan': false, 'overall': false};
     }
-  }
-
-  /// 获取详细的BLE状态信息
-  Future<String> getDetailedBleStatus() async {
-    final status = await checkAllServicesStatus();
-    final modeText = _currentMode == BleWorkMode.highFrequency
-        ? 'High Frequency'
-        : 'Low Power';
-
-    return '''
-BLE Service Status:
-- Broadcast Service: ${status['broadcast'] ?? false ? '✅ Running' : '❌ Stopped'}
-- Scan Service: ${status['scan'] ?? false ? '✅ Running' : '❌ Stopped'}
-- Overall Status: ${status['overall'] ?? false ? '✅ Active' : '❌ Inactive'}
-- Service State: $_serviceState
-- Current Mode: $modeText
-- Status Message: $serviceStatusMessage
-''';
   }
 
   /// 获取已知用户UUID列表
@@ -532,22 +606,10 @@ BLE Service Status:
     }
 
     try {
-      await _startServices();
+      await startServices(); // 【修改】改为public方法
     } catch (e) {
       print("[HomeServiceLogic] Failed to start service: $e");
       _updateServiceStatusDisplay(error: 'Start failed: $e');
-    }
-  }
-
-  /// 检查扫描服务是否真正运行并接收数据
-  Future<bool> checkScanServiceActive() async {
-    try {
-      final bool scanRunning = await _bluetoothScanService.isServiceRunning();
-      print("[HomeServiceLogic] Scan service running status: $scanRunning");
-      return scanRunning;
-    } catch (e) {
-      print("[HomeServiceLogic] Error checking scan service: $e");
-      return false;
     }
   }
 
@@ -596,38 +658,6 @@ BLE Service Status:
     }
   }
 
-  /// 处理扫描到的二维码数据并更新数据库
-  Future<String?> handleScannedData(String qrData) async {
-    try {
-      final Map<String, dynamic> data = jsonDecode(qrData);
-      final otherUserUuid = data['userUuid'] as String?;
-      final otherSecretKey = data['secretKey'] as String?;
-
-      if (otherUserUuid != null && otherSecretKey != null) {
-        final newContactDevice = ContactDevice(
-          uuid: otherUserUuid,
-          secretKey: otherSecretKey,
-          lastSeen: DateTime.now().toIso8601String(),
-          firstSeen: DateTime.now().toIso8601String(),
-          rssi: -50,
-        );
-        await _deviceDao.insertDevice(newContactDevice);
-        return null;
-      } else {
-        return 'Invalid QR code data: UUID or SecretKey is missing.';
-      }
-    } catch (e) {
-      return 'Invalid data format: $e';
-    }
-  }
-
-  /// 生成二维码数据
-  Future<Map<String, String>> getMyQrData() async {
-    final userUuid = await _secureStorageService.getOrCreateUserUUID();
-    final secretKey = await _secureStorageService.getOrCreateSecretKey();
-    return {'userUuid': userUuid, 'secretKey': secretKey};
-  }
-
   // 使用 Stream 直接从 DAO 获取实时统计数据
   Stream<int> get deviceCountStream {
     print("[HomeServiceLogic] deviceCountStream accessed");
@@ -637,5 +667,30 @@ BLE Service Status:
   Stream<int> get totalMinutesStream {
     print("[HomeServiceLogic] totalMinutesStream accessed");
     return _deviceDao.getTotalContactMinutesStream();
+  }
+
+  /// 【新增】设置开机自启动
+  Future<void> setAutoStartEnabled(bool enabled) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('auto_start_enabled', enabled);
+
+      print(
+        "[HomeServiceLogic] Auto-start ${enabled ? 'enabled' : 'disabled'}",
+      );
+    } catch (e) {
+      print("[HomeServiceLogic] Error setting auto-start: $e");
+    }
+  }
+
+  /// 【新增】检查开机自启动状态
+  Future<bool> isAutoStartEnabled() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool('auto_start_enabled') ?? false;
+    } catch (e) {
+      print("[HomeServiceLogic] Error checking auto-start: $e");
+      return false;
+    }
   }
 }

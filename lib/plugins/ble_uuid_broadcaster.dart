@@ -1,6 +1,5 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
-import 'package:orbits_new/utils/secure_storage_service.dart';
 
 /// 统一的 BLE UUID 广播类，前台 / 后台统一使用 startBroadcastWithKeys
 class BleUuidBroadcaster {
@@ -48,15 +47,11 @@ class BleUuidBroadcaster {
 
   /// 启动 BLE 广播服务（核心方法）。
   /// [secretKey] 与 [userUuid] 由调用方提供（适合后台任务）。
-  // Future<void> startBroadcastWithKeys({
   Future<void> startBroadcast({
     required String secretKey,
     required String userUuid,
   }) async {
     try {
-      print("[BleUuidBroadcaster] Calling native startBroadcast with:");
-      print("[BleUuidBroadcaster] - userUuid: $userUuid");
-      print("[BleUuidBroadcaster] - secretKey length: ${secretKey.length}");
       final result = await _channel.invokeMethod('startBroadcast', {
         'userUUID': userUuid,
         'secretKey': secretKey,

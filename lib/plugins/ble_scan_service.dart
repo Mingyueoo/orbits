@@ -22,9 +22,9 @@ class BluetoothScanService {
       {}; // Stores UUID and first seen time of discovered devices
   final Map<String, int> _contactDurationMap =
       {}; // Stores device UUID and contact duration
-  // final int contactThresholdMinutes = 15; // Defines contact duration threshold (15 minutes)
-  // final int contactThresholdMinutes = 1; // for testing, 1 minutes.
+
   final DeviceDao deviceDao = DeviceDao(); // Device data access object instance
+  // final RssiHistoryDao rssiHistoryDao = RssiHistoryDao();
 
   StreamSubscription?
   _scanResultsSubscription; // Subscription for listening to native scan results stream
@@ -50,13 +50,17 @@ class BluetoothScanService {
     await [
       Permission.bluetooth,
       // Bluetooth permission
-      Permission.locationWhenInUse,
+      // Permission.locationWhenInUse,
+      // If continuous background scanning is needed, ACCESS_BACKGROUND_LOCATION (locationAlways) might also be required, but use with caution and inform the user
+      Permission.locationAlways,
       // Location permission while in use (required for BLE scanning)
       Permission.bluetoothScan,
       // Android 12+ Bluetooth scan permission
       Permission.bluetoothConnect,
       // Android 12+ Bluetooth connect permission
       Permission.bluetoothAdvertise,
+      Permission.notification, // 通知权限
+      Permission.ignoreBatteryOptimizations, // 忽略电池优化
       // Android 12+ Bluetooth advertise permission (though it's a scan service, often also required)
       // If continuous background scanning is needed, ACCESS_BACKGROUND_LOCATION (locationAlways) might also be required, but use with caution and inform the user
       // Permission.locationAlways,
@@ -232,7 +236,7 @@ class BluetoothScanService {
 
         final String secretKey = scanResultMap['secretKey'] as String;
 
-        if (rssi > -70) {
+        if (rssi > -80 && rssi < -30) {
           print(
             "[BluetoothScanService] Dart: [Valid rssi] $rssi for device $userUuid",
           );
@@ -249,7 +253,8 @@ class BluetoothScanService {
               secretKey: secretKey,
               contactDuration: 1, // 首次接触，累计时长为1分钟
             );
-            await deviceDao.insertDevice(device);
+            // await deviceDao.insertDevice(device);
+            await deviceDao.insertOrUpdateDevice(device);
             print(
               "[BluetoothScanService] New device inserted: $userUuid, contactDuration: 1",
             );
@@ -257,7 +262,7 @@ class BluetoothScanService {
             final lastSeen = DateTime.tryParse(existing.lastSeen);
 
             if (lastSeen != null) {
-              // 计算从上一次扫描到这一次扫描的间隔时间（分钟）
+              // 计算从上一次扫描到这一次扫描的间隔时间（分钟），逻辑非常正确，不需要修改
               final durationToAdd = now.difference(lastSeen).inMinutes;
               // 确保时间间隔是正数且小于某个阈值（例如10分钟），避免错误数据累加
               if (durationToAdd > 0 && durationToAdd <= 10) {

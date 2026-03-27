@@ -34,7 +34,7 @@ class QrService {
       final otherSecretKey = data['secretKey'] as String?;
 
       if (otherUserUuid == null || otherSecretKey == null) {
-        throw FormatException("UUID 或 SecretKey 缺失");
+        throw FormatException("UUID or SecretKey is missing");
       }
 
       final newContactDevice = ContactDevice(
@@ -44,11 +44,14 @@ class QrService {
         firstSeen: DateTime.now().toIso8601String(),
         rssi: -50,
       );
-
+      // 使用新的insertDevice方法，如果设备已存在会抛出异常
       await _deviceDao.insertDevice(newContactDevice);
       return newContactDevice;
     } catch (e) {
-      throw FormatException("二维码数据无效: $e");
+      if (e.toString().contains("The device already exists")) {
+        throw FormatException("This device already exists.");
+      }
+      throw FormatException("The QR code data is invalid: $e");
     }
   }
 }

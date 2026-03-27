@@ -15,7 +15,12 @@ class DBHelper {
     final dbPath = await getDatabasesPath();
     final path = join(dbPath, fileName);
 
-    return await openDatabase(path, version: 1, onCreate: _createDB);
+    return await openDatabase(
+      path,
+      version: 2,
+      onCreate: _createDB,
+      onUpgrade: _upgradeDB,
+    );
   }
 
   static Future _createDB(Database db, int version) async {
@@ -41,23 +46,41 @@ class DBHelper {
       )
     ''');
 
-    // await db.execute('''
-    //   CREATE TABLE emergency_contacts (
-    //     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    //     name TEXT,
-    //     phone TEXT,
-    //     note TEXT
-    //   )
-    // ''');
+    // 在 _createDB 方法中添加新表
+    await db.execute('''
+  CREATE TABLE rssi_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    uuid TEXT,
+    rssi INTEGER,
+    timestamp TEXT,
+    FOREIGN KEY (uuid) REFERENCES contact_devices (uuid)
+  )
+''');
+  }
 
-    // await db.execute('''
-    //   CREATE TABLE scan_history (
-    //     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    //     uuid TEXT,
-    //     rssi INTEGER,
-    //     timestamp TEXT,
-    //     valid_contact INTEGER
-    //   )
-    // ''');
+  // 关键：添加升级逻辑
+  static Future _upgradeDB(Database db, int oldVersion, int newVersion) async {
+    print(
+      "[DBHelper] Upgrading database from version $oldVersion to $newVersion",
+    );
+
+    if (oldVersion < 2) {
+      // 从版本1升级到版本2：添加rssi_history表
+      await db.execute('''
+        CREATE TABLE rssi_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          uuid TEXT,
+          rssi INTEGER,
+          timestamp TEXT,
+          FOREIGN KEY (uuid) REFERENCES contact_devices (uuid)
+        )
+      ''');
+      print("[DBHelper] Added rssi_history table");
+    }
+
+    // 未来可以添加更多升级逻辑
+    // if (oldVersion < 3) {
+    //   // 从版本2升级到版本3：添加新列或表
+    // }
   }
 }

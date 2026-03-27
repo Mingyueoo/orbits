@@ -29,14 +29,6 @@ class DeviceDao {
     print("[DeviceDao] forceRefresh: _updateSubject.add(null) completed");
   }
 
-  Future<void> restoreAfterAppRestart() async {
-    print("[DeviceDao] Restoring after app restart...");
-
-    await initialize();
-
-    forceRefresh();
-  }
-
   // 确保所有的数据库操作都通过这个方法进行，以统一触发 Stream 更新
   Future<T> _performDbOperation<T>(
     Future<T> Function(Database) operation,
@@ -114,9 +106,27 @@ class DeviceDao {
     _updateSubject.close();
   }
 
-  /// 插入或更新设备
+  /// 插入设备（如果已存在则抛出异常）==qr code used to solve repeated inserting
   Future<void> insertDevice(ContactDevice device) async {
-    // 插入逻辑，并统一通过 _performDbOperation 触发更新
+    await _performDbOperation((db) async {
+      // 先检查设备是否已存在
+      final existing = await db.query(
+        'contact_devices',
+        where: 'uuid = ?',
+        whereArgs: [device.uuid],
+      );
+
+      if (existing.isNotEmpty) {
+        throw Exception("The device already exists: ${device.uuid}");
+      }
+
+      // 如果不存在，则插入新设备
+      return db.insert('contact_devices', device.toMap());
+    });
+  }
+
+  /// 插入或更新设备（如果已存在则更新，不存在则插入）==用来更新contact time and rssi
+  Future<void> insertOrUpdateDevice(ContactDevice device) async {
     await _performDbOperation(
       (db) => db.insert(
         'contact_devices',
@@ -124,16 +134,6 @@ class DeviceDao {
         conflictAlgorithm: ConflictAlgorithm.replace,
       ),
     );
-  }
-
-  /// 获取所有设备的UUID列表 - 改为 Stream 形式--还没用上
-  Stream<List<String>> getAllUserUUIDsStream() {
-    return _updateSubject.switchMap((_) async* {
-      final db = await DBHelper.database;
-      final result = await db.query('contact_devices', columns: ['uuid']);
-      final uuids = result.map((e) => e['uuid'] as String).toList();
-      yield uuids;
-    });
   }
 
   /// 获取所有设备的UUID列表
@@ -169,7 +169,7 @@ class DeviceDao {
     );
   }
 
-  /// 删除指定设备
+  /// 删除指定设备根据uuid
   Future<void> deleteDevice(String uuid) async {
     await _performDbOperation(
       (db) =>

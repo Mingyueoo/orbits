@@ -79,7 +79,7 @@ class _ContactBindPageState extends State<ContactBindPage> {
       appBar: AppBar(
         title: Text(isEditing ? "Edit Contact" : "Bind Contact"),
         centerTitle: false,
-        backgroundColor: AppTheme.primaryColor.withOpacity(0.9),
+        backgroundColor: AppTheme.primaryColor.withAlpha((255 * 0.9).round()),
         foregroundColor: Colors.white,
       ),
 
@@ -103,7 +103,7 @@ class _ContactBindPageState extends State<ContactBindPage> {
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 14,
-                        color: Colors.black.withOpacity(0.6),
+                        color: Colors.black.withAlpha((255 * 0.6).round()),
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -111,7 +111,7 @@ class _ContactBindPageState extends State<ContactBindPage> {
                       widget.uuid,
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.black.withOpacity(0.8),
+                        color: Colors.black.withAlpha((255 * 0.8).round()),
                       ),
                     ),
                     const SizedBox(height: 24),

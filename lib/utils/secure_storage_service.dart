@@ -33,48 +33,6 @@ class SecureStorageService {
     return uuid;
   }
 
-  /// 获取或生成一个用于加密的密钥。
-  /// 这个密钥用于生成滚动 ID。
-  /// 所有设备使用相同的secretKey以确保rolling ID验证成功。
-  // Future<String> getOrCreateSecretKey() async {
-  //   // 强制使用新的共享secretKey，清除旧的secretKey
-  //   String? secretKey = await _storage.read(key: _secretKey);
-  //
-  //   // 如果密钥不是共享密钥，则清除并重新生成
-  //   if (secretKey != "OrbitsAppSecretKey2024SharedByAllDevices") {
-  //     print(
-  //       "[SecureStorageService] Clearing old secret key and generating new shared key.",
-  //     );
-  //     await _storage.delete(key: _secretKey);
-  //     secretKey = null;
-  //   }
-  //
-  //   // 如果密钥不存在，则生成一个新的
-  //   if (secretKey == null) {
-  //     // 使用固定的secretKey，确保所有设备使用相同的密钥
-  //     // 这样rolling ID验证就能成功
-  //     secretKey = "OrbitsAppSecretKey2024SharedByAllDevices";
-  //     // 将新生成的密钥写入安全存储
-  //     await _storage.write(key: _secretKey, value: secretKey);
-  //     print(
-  //       "[SecureStorageService] A new shared secret key has been generated and stored.",
-  //     );
-  //   } else {
-  //     print(
-  //       "[SecureStorageService] Existing shared secret key has been loaded.",
-  //     );
-  //   }
-  //
-  //   return secretKey;
-  // }
-
-  /// 清除所有存储的数据（用于调试或重置）
-  // Future<void> clearAll() async {
-  //   await _storage.deleteAll();
-  //   print("[SecureStorageService] All data cleared.");
-  // }
-
-  // 第 35-65 行：getOrCreateSecretKey() 方法
   Future<String> getOrCreateSecretKey() async {
     String? secretKey = await _storage.read(key: _secretKey);
     String? keyVersion = await _storage.read(key: _keyVersion);

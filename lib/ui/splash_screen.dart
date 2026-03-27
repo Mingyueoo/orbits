@@ -27,6 +27,7 @@ class _SplashScreenState extends State<SplashScreen> {
 
     if (isFirstLaunch == null || !isFirstLaunch) {
       // 如果是第一次启动 (标志不存在或为 false)
+
       await prefs.setBool('is_first_launch', true); // 设置为已启动
       // 延迟 3 秒后跳转到主页面
       Future.delayed(const Duration(seconds: 3), () {
@@ -36,8 +37,6 @@ class _SplashScreenState extends State<SplashScreen> {
         }
       });
     } else {
-      // 如果不是第一次启动 (标志为 true)
-      // 直接跳转到主页面
       if (mounted) {
         Navigator.pushReplacementNamed(context, AppShell.routeName);
       }
@@ -54,7 +53,7 @@ class _SplashScreenState extends State<SplashScreen> {
             FlutterLogo(size: 100), // Flutter Logo 作为示例
             SizedBox(height: 20),
             Text(
-              'Welcome to the Orbits',
+              'Welcome to the Orbitz',
               style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             SizedBox(height: 10),

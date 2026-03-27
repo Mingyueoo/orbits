@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.orbits_new"
+    namespace = "com.example.orbitz"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
     ndkVersion = "27.0.12077973"
@@ -32,13 +32,47 @@ android {
         versionName = flutter.versionName
     }
 
+
+
+    buildFeatures {
+        buildConfig = true
+    }
+
+    signingConfigs {
+        create("release") {
+            // 使用debug keystore作为临时方案
+            // 生产环境应该使用正式的keystore
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+
+            buildConfigField("Boolean", "DEBUG_MODE", "false")
+            signingConfig = signingConfigs.getByName("release")
+            isMinifyEnabled = false
+            isShrinkResources = false
+//            proguardFiles(
+//                getDefaultProguardFile("proguard-android-optimize.txt"),
+//                "proguard-rules.pro"
+//            )
+        }
+        debug {
             signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("Boolean", "DEBUG_MODE", "true")
+            isMinifyEnabled = false
+            isShrinkResources = false
+
         }
     }
+}
+dependencies {
+    implementation("androidx.work:work-runtime-ktx:2.10.4")
 }
 
 flutter {

@@ -13,15 +13,6 @@ class BluetoothService {
     return true;
   }
 
-  // If you just want to get the *current* state without waiting for it to turn on,
-  // you can listen to the stream and get the last known value, or directly check
-  // the first value if you're sure Bluetooth is initialized.
-  static Future<bool> getCurrentBluetoothState() async {
-    final BluetoothAdapterState state =
-    await FlutterBluePlus.adapterState.first;
-    return state == BluetoothAdapterState.on;
-  }
-
   static Future<void> openBluetoothSettings() async {
     await AppSettings.openAppSettings();
   }

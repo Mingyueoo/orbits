@@ -8,7 +8,8 @@ import 'package:orbits_new/controllers/home_service_logic.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized(); // 确保 Flutter 绑定已初始化
-  await initWorkManager(); // 初始化 WorkManager
+  // 初始化WorkManager
+  await BleWorkManager.initialize();
 
   runApp(
     // Use ChangeNotifierProvider instead of the generic Provider
